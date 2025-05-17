@@ -3,6 +3,8 @@
 #include <unistd.h>
 #include <getopt.h>
 #include <pthread.h>
+#include <ctype.h>
+#include <string.h>
 
 #define CAPACITY 5
 #define VIPSTR(vip) ((vip) ? "  vip  " : "not vip")
@@ -29,6 +31,14 @@ int turno_actual_vips = 0;
 
 int numero_clientes_bailando = 0;
 
+void escribir_salida(const char *msg) {
+    if (salida == stdout) {
+        fputs(msg, stdout);
+    } else {
+        fwrite(msg, 1, strlen(msg), salida);
+    }
+}
+
 void enter_vip_client(int id) {
     pthread_mutex_lock(&mu); 
     numero_clientes_vips_cola++;
@@ -37,7 +47,9 @@ void enter_vip_client(int id) {
     // 2. Esta lleno
     while (id != turno_actual_vips 
              || numero_clientes_bailando >= CAPACITY) {
-	    fprintf(salida, "#  Cliente esperando:   vip   con id:%2d\n", id);
+        char buffer[256];
+        snprintf(buffer, sizeof(buffer), "#  Cliente esperando:   vip   con id:%2d\n", id);
+        escribir_salida(buffer);
         pthread_cond_wait(&sala_espera_vips, &mu);
     } numero_clientes_bailando++;
     numero_clientes_vips_cola--;
@@ -56,7 +68,9 @@ void enter_normal_client(int id) {
     while (numero_clientes_vips_cola != 0 
             || id != turno_actual_normales 
             || numero_clientes_bailando >= CAPACITY) {
-	    fprintf(salida, "#  Cliente esperando: not vip con id:%2d\n", id);
+        char buffer[256];
+        snprintf(buffer, sizeof(buffer), "#  Cliente esperando: not vip con id:%2d\n", id);
+        escribir_salida(buffer);
         pthread_cond_wait(&sala_espera_normales, &mu);
     }
     numero_clientes_bailando++;
@@ -74,7 +88,9 @@ void dance(int id, int isvip) {
 void disco_exit(int id, int isvip) {
     pthread_mutex_lock(&mu); 
     numero_clientes_bailando--;
-    fprintf(salida, "<- Cliente fuera    : %s con id: %d\n", VIPSTR(isvip), id);
+    char buffer[256];
+    snprintf(buffer, sizeof(buffer), "<- Cliente fuera    : %s con id: %d\n", VIPSTR(isvip), id);
+    escribir_salida(buffer);
     if (numero_clientes_vips_cola > 0) {
         pthread_cond_signal(&sala_espera_vips); 
     }
@@ -99,7 +115,7 @@ void *client(void *arg) {
 
 void usage(char* progname) {
     printf("Uso: %s -f <file_name> \n", progname);
-    printf("Opciones;\n");
+    printf("Opciones:\n");
     printf("\t-f <file_name>: especificar el archivo de entrada\n");
     printf("\t-o <file_name>: especificar el archivo de salida\n");
     printf("\t-h: mostrar este mensaje\n");
@@ -113,18 +129,84 @@ int main(int argc, char *argv[]) {
     
     int opt;
     FILE* entrada;
+    salida = stdout;
     
-    while ((opt = getopt(argc, argv, "f:o:h")) != -1) {
+    while ((opt = getopt(argc, argv, "i:o:h")) != -1) {
         switch(opt) {
-            case 'f':
+            case 'i':
                 entrada=fopen(optarg, "r");
                 if (entrada == NULL) {
                     perror("Error abriendo el archivo de entrada.");
                     exit(EXIT_FAILURE);
                 }
+
+                int total;
+                char char_actual;
+                char num_str_buffer[12];
+                int buffer_idx = 0;
+                ssize_t bytes_read;
+
+                while ((bytes_read = fread(&char_actual, sizeof(char_actual), 1, entrada) == 1)) {
+                    if (char_actual == '\n') {
+                        break;
+                    }
+                    if (buffer_idx < sizeof(num_str_buffer) && isdigit(char_actual)) {
+                        num_str_buffer[buffer_idx++] = char_actual;
+                    } else {
+                        perror("Error al procesar el archivo de entrada");
+                        fclose(entrada);
+                        exit(EXIT_FAILURE);
+                    }
+                }
+
+                if (buffer_idx == 0) {
+                    perror("Error al profcesar el archivo de entrada");
+                    fclose(entrada);
+                    exit(EXIT_FAILURE);
+                }
+
+                num_str_buffer[buffer_idx] = '\0';
+                total = atoi(num_str_buffer);
+
+                t_cliente *clientes = malloc(total * sizeof(t_cliente));
+                pthread_t *hilos = malloc(total * sizeof(pthread_t));
+
+                for (int i = 0; i < total; i++) {
+                    if ((bytes_read = fread(&char_actual, sizeof(char_actual), 1, entrada)) == 1) {
+                        if (char_actual == '0') {
+                            // no es vip
+                            clientes[i].id = turno_actual_normales++;
+                            clientes[i].is_vip = 0;
+                        } else {
+                            // es vip
+                            clientes[i].id = turno_actual_vips++;
+                            clientes[i].is_vip = 1;
+                        }
+                    } else {
+                        perror("Error al profcesar el archivo de entrada");
+                        free(clientes); free(hilos);
+                        fclose(entrada);
+                        exit(EXIT_FAILURE);
+                    }
+                    fprintf(salida, "Cliente leído: %s con id: %d\n", VIPSTR(clientes[i].is_vip), clientes[i].id);
+                    fread(&char_actual, sizeof(char_actual), 1, entrada); // leer el salto de linea
+                }
+
+                turno_actual_normales = 0;
+                turno_actual_vips = 0;
+
+                // siempre un bucle para crearlos a todos
+                for (int i = 0; i < total; i++) {
+                    pthread_create(&hilos[i], NULL, client, (void*) &clientes[i]);
+                }
+                // y otro para el join IMPORTANTE
+                for (int i = 0; i < total; i++) {
+                    pthread_join(hilos[i], NULL);
+                }
+
                 break;
             case 'o':
-                salida=fopen(optarg, "w+");
+                salida = fopen(optarg, "w");
                 if (salida == NULL) {
                     perror("Error abriendo el archivo de salida.");
                     exit(EXIT_FAILURE);
@@ -132,43 +214,14 @@ int main(int argc, char *argv[]) {
                 break;
             case 'h':
                 usage(argv[0]);
-                exit(0);
+                exit(EXIT_SUCCESS);
         }
     }
-    if (salida == NULL) salida = stdout;
 
-    if (optind < argc) {
-        fprintf(salida, "Discoteca %s\n", argv[optind]);
-    }
-     
-    int total_cola;
-    fscanf(entrada, "%d", &total_cola);
-    
-    t_cliente clientes[total_cola];
-    pthread_t hilos[total_cola];
-    
-    for (int i = 0; i < total_cola; i++) {
-        fscanf(entrada, "%d", &clientes[i].is_vip); 
-        if (clientes[i].is_vip) {
-            clientes[i].id = turno_actual_vips++;
-        } else {
-            clientes[i].id = turno_actual_normales++;
-        }
-        fprintf(salida, "Cliente leído: %s con id: %d\n", VIPSTR(clientes[i].is_vip), clientes[i].id);
-    }
-
-    turno_actual_normales = 0;
-    turno_actual_vips = 0;
-    
-    fprintf(salida, "TOTAL-------------------------%2d\n", total_cola);
-    
-    // siempre un bucle para crearlos a todos
-    for (int i = 0; i < total_cola; i++) {
-        pthread_create(&hilos[i], NULL, client, (void*) &clientes[i]);
-    }
-    // y otro para el join IMPORTANTE
-    for (int i = 0; i < total_cola; i++) {
-        pthread_join(hilos[i], NULL);
+    if (!entrada) {
+        perror("Error es necesario proveer un archivo mediante -i <archivo>");
+        usage(argv[0]);
+        exit(EXIT_FAILURE);
     }
 
     fclose(entrada);

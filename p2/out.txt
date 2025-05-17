@@ -1,0 +1,30 @@
+Cliente leído:   vip   con id: 0
+Cliente leído: not vip con id: 0
+Cliente leído:   vip   con id: 1
+Cliente leído:   vip   con id: 2
+Cliente leído: not vip con id: 1
+Cliente leído:   vip   con id: 3
+Cliente leído: not vip con id: 2
+-> Cliente entra    :   vip   con id: 0
+&  Cliente bailando :   vip   con id: 0
+-> Cliente entra    : not vip con id: 0
+&  Cliente bailando : not vip con id: 0
+-> Cliente entra    :   vip   con id: 1
+&  Cliente bailando :   vip   con id: 1
+-> Cliente entra    : not vip con id: 1
+&  Cliente bailando : not vip con id: 1
+-> Cliente entra    :   vip   con id: 2
+&  Cliente bailando :   vip   con id: 2
+#  Cliente esperando:   vip   con id: 3
+#  Cliente esperando: not vip con id: 2
+<- Cliente fuera    : not vip con id: 1
+-> Cliente entra    :   vip   con id: 3
+&  Cliente bailando :   vip   con id: 3
+<- Cliente fuera    : not vip con id: 0
+-> Cliente entra    : not vip con id: 2
+&  Cliente bailando : not vip con id: 2
+<- Cliente fuera    :   vip   con id: 3
+<- Cliente fuera    :   vip   con id: 1
+<- Cliente fuera    :   vip   con id: 0
+<- Cliente fuera    :   vip   con id: 2
+<- Cliente fuera    : not vip con id: 2

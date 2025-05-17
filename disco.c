@@ -1,3 +1,6 @@
+/*
+ *  Marco Antonio Pérez Neira
+ */
 #include <stdio.h>
 #include <stdlib.h>
 #include <unistd.h>
@@ -24,20 +27,20 @@ int numero_clientes_vips_cola = 0;
 int turno_actual_normales = 0;
 int turno_actual_vips = 0;
 
-int numero_clientes_bailando = 0;
+int numero_clientes_disco = 0;
 
 void enter_vip_client(int id) {
-    pthread_mutex_lock(&mu); 
+    pthread_mutex_lock(&mu);
     numero_clientes_vips_cola++;
     // Esperar si:
     // 1. No es mi turno
     // 2. Esta lleno
-    while (id != turno_actual_vips 
-             || numero_clientes_bailando >= CAPACITY) {
+    while (id != turno_actual_vips
+             || numero_clientes_disco >= DISCO_CAPACITY) {
 	    printf("#  Cliente esperando:   vip   con id:%2d\n", id);
         pthread_cond_wait(&sala_espera_vips, &mu);
     }
-    numero_clientes_bailando++;
+    numero_clientes_disco++;
     numero_clientes_vips_cola--;
     turno_actual_vips++;
     printf("-> Cliente entra    :   vip   con id: %d\n", id);
@@ -45,19 +48,19 @@ void enter_vip_client(int id) {
 }
 
 void enter_normal_client(int id) {
-    pthread_mutex_lock(&mu); 
+    pthread_mutex_lock(&mu);
     numero_clientes_normales_cola++;
     // Esperar si:
     // 1. Hay vips primero
     // 2. No es mi turno
     // 3. Esta lleno
-    while (numero_clientes_vips_cola != 0 
-            || id != turno_actual_normales 
-            || numero_clientes_bailando >= CAPACITY) {
+    while (numero_clientes_vips_cola != 0
+            || id != turno_actual_normales
+            || numero_clientes_disco >= DISCO_CAPACITY) {
 	    printf("#  Cliente esperando: not vip con id:%2d\n", id);
         pthread_cond_wait(&sala_espera_normales, &mu);
     }
-    numero_clientes_bailando++;
+    numero_clientes_disco++;
     numero_clientes_normales_cola--;
     turno_actual_normales++;
 	printf("-> Cliente entra    : not vip con id:%2d\n", id);
@@ -70,16 +73,16 @@ void dance(int id, int isvip) {
 }
 
 void disco_exit(int id, int isvip) {
-    pthread_mutex_lock(&mu); 
-    numero_clientes_bailando--;
+    pthread_mutex_lock(&mu);
+    numero_clientes_disco--;
     printf("<- Cliente fuera    : %s con id: %d\n", VIPSTR(isvip), id);
     if (numero_clientes_vips_cola > 0) {
-        pthread_cond_signal(&sala_espera_vips); 
+        pthread_cond_broadcast(&sala_espera_vips);
     }
     else if(numero_clientes_normales_cola > 0) {
-        pthread_cond_signal(&sala_espera_normales);
+        pthread_cond_broadcast(&sala_espera_normales);
     }
-    pthread_mutex_unlock(&mu); 
+    pthread_mutex_unlock(&mu);
 }
 
 void *client(void *arg) {
@@ -105,15 +108,15 @@ int main(int argc, char *argv[]) {
         perror("Error abriendo el archivo.");
         exit(EXIT_FAILURE);
     }
-     
+
     int total_cola;
     fscanf(fichero, "%d", &total_cola);
-    
+
     t_cliente clientes[total_cola];
     pthread_t hilos[total_cola];
-    
+
     for (int i = 0; i < total_cola; i++) {
-        fscanf(fichero, "%d", &clientes[i].is_vip); 
+        fscanf(fichero, "%d", &clientes[i].is_vip);
         if (clientes[i].is_vip) {
             clientes[i].id = turno_actual_vips++;
         } else {
@@ -124,9 +127,9 @@ int main(int argc, char *argv[]) {
 
     turno_actual_normales = 0;
     turno_actual_vips = 0;
-    
+
     printf("TOTAL-------------------------%2d\n", total_cola);
-    
+
     // siempre un bucle para crearlos a todos
     for (int i = 0; i < total_cola; i++) {
         pthread_create(&hilos[i], NULL, client, (void*) &clientes[i]);
